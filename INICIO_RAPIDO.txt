@@ -1,0 +1,18 @@
+WEBBRIDGE UCB - VERSION MVVM
+===========================
+
+1. Abre la carpeta WebBridge_UCB_Arquitectura_MVVM en Android Studio.
+2. Sincroniza Gradle (usa el SDK Android solicitado por el IDE).
+3. Ejecuta en dispositivo/emulador (API 24 o mayor).
+4. Envia un mensaje desde Kotlin y otro desde el HTML.
+5. Limpia el historial desde los dos lados.
+
+Package / applicationId: ucb.edu.webbride_ucb (webbride sin g).
+MainActivity solo contiene el punto de entrada de Compose.
+La logica se reparte entre domain, data y presentation.
+
+Guia completa en docs/Guia_WebBridge_UCB_MVVM.docx
+README.md explica la arquitectura, el flujo y las pruebas.
+
+PRUEBA JS SIN EMULADOR: node tests-js/bridge.test.js
+ADVERTENCIA: La compilacion de Android en un equipo con SDK sigue pendiente de verificacion.
