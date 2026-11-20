@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>WebBridge UCB</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="js/bridge.js" defer></script>
+</head>
+<body>
+  <main class="panel">
+    <h1>Web → Android</h1>
+    <p>Esta página HTML/JavaScript vive dentro del WebView. No necesita servidor ni internet.</p>
+
+    <label for="webInput">Mensaje desde JavaScript</label>
+    <textarea id="webInput" maxlength="2000" placeholder="Escribe algo para Android..."></textarea>
+    <div class="actions" aria-label="Operaciones del lado web">
+      <button id="requestButton" type="button">Request</button>
+      <button id="responseButton" type="button" disabled>Response</button>
+      <button id="eventButton" type="button">Event</button>
+    </div>
+    <p class="helper">Request espera respuesta. Response atiende un Request de Android. Event no necesita respuesta.</p>
+
+    <section class="pending">
+      <h2>Solicitud pendiente desde Android</h2>
+      <p id="pendingRequest">No hay solicitudes pendientes.</p>
+      <p class="helper">Cuando llegue una, pulsa Response. Puedes dejar el texto vacío para responder con un ejemplo.</p>
+    </section>
+
+    <div id="status" role="status" aria-live="polite">Página JavaScript lista.</div>
+    <div class="actions">
+      <button id="clearButton" class="secondary" type="button">Limpiar ambos historiales</button>
+    </div>
+    <h2>Historial de JavaScript</h2>
+    <ul id="history" aria-label="Operaciones intercambiadas"></ul>
+  </main>
+</body>
+</html>

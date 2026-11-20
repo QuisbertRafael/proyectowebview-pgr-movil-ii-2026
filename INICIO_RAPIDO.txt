@@ -1,0 +1,22 @@
+WEBBRIDGE UCB - REQUEST / RESPONSE / EVENT (MVVM)
+=================================================
+
+1. Abre en Android Studio la carpeta del proyecto (donde está settings.gradle.kts).
+2. Sincroniza Gradle; instala el SDK solicitado si Android Studio lo indica.
+3. Ejecuta en teléfono o emulador Android (API 24 o posterior).
+4. Pantalla Android -> Web: escribe un texto y pulsa Request.
+5. Pantalla Web -> Android: revisa la solicitud recibida y pulsa Response.
+6. Ahora envía un Request desde la Web y responde desde Android.
+7. Prueba el botón Event en los dos sentidos y revisa Resultados.
+8. Limpia el historial en Resultados para reiniciar las pruebas.
+
+IMPORTANTE: Respuesta (Response) solo se habilita si hay Request pendiente
+del otro lado. La página web está dentro del WebView de la propia app.
+No se necesita PC como servidor ni navegador externo.
+
+Package: ucb.edu.webbride_ucb (webbride sin g).
+MainActivity solo inicia Compose. La lógica está en el ViewModel.
+
+README.md: explicación del protocolo, arquitectura y guía de integración.
+PRUEBA JS: node tests-js/bridge.test.js
+PRUEBA ANDROID: requiere compilar y ejecutar en Android Studio con SDK.
