@@ -6,5 +6,6 @@ data class BridgeMessage(
     val source: String,
     val text: String = "",
     val id: String = "",
-    val requestId: String = ""
+    val requestId: String = "",
+    val action: String = ""
 )

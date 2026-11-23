@@ -4,9 +4,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 import ucb.edu.webbride_ucb.data.bridge.BridgeMessageCodec
+import ucb.edu.webbride_ucb.domain.model.BridgeAction
 import ucb.edu.webbride_ucb.domain.model.BridgeMessage
 import ucb.edu.webbride_ucb.domain.model.ChatEntry
 import ucb.edu.webbride_ucb.domain.validation.MessageValidator
@@ -16,8 +21,9 @@ class WebBridgeViewModel : ViewModel() {
     var uiState by mutableStateOf(WebBridgeUiState())
         private set
 
-    private val commandChannel = Channel<BridgeMessage>(Channel.BUFFERED)
+    private val commandChannel = Channel<String>(Channel.UNLIMITED)
     val commands = commandChannel.receiveAsFlow()
+    private val scheduledResponses = mutableMapOf<String, Job>()
     private var nextRequestNumber = 0L
 
     fun updateInput(value: String) {
@@ -27,17 +33,25 @@ class WebBridgeViewModel : ViewModel() {
     }
 
     fun onWebReady(isReady: Boolean) {
-        // Solo la carga real de la página reinicia las solicitudes pendientes.
-        // Cambiar de pestaña NO desmonta el WebView, por lo que no se pierden.
         if (isReady) {
             uiState = uiState.copy(
                 isWebReady = true,
-                pendingFromWeb = emptyList(),
-                awaitingWebResponses = emptyList(),
-                status = "WebView listo. Puedes iniciar Request, Response y Event."
+                status = "WebView listo"
             )
         } else {
-            uiState = uiState.copy(isWebReady = false, status = "Cargando página HTML local...")
+            cancelResponses()
+            while (commandChannel.tryReceive().isSuccess) {
+                // Estos comandos correspondían a la página anterior.
+            }
+            uiState = uiState.copy(
+                isWebReady = false,
+                awaitingWebResponses = emptySet(),
+                status = "Cargando página HTML local…",
+                messages = uiState.messages.map {
+                    if (it.status == "Esperando Response") it.copy(status = "Cancelado por recarga")
+                    else it
+                }
+            )
         }
     }
 
@@ -51,51 +65,26 @@ class WebBridgeViewModel : ViewModel() {
         uiState = uiState.copy(
             nativeInput = "",
             awaitingWebResponses = uiState.awaitingWebResponses + packet.id,
-            status = "Request ${packet.id} enviado. Abre Web → Android para responder."
+            status = "Request ${packet.id} enviado. Esperando respuesta automática…"
         )
-        record(packet, destination = "Web", status = "Esperando Response")
-        dispatch(packet)
+        sendToWeb(packet, status = "Esperando Response")
     }
 
-    fun sendAndroidEvent() {
-        val text = validatedInput() ?: return
-        val packet = BridgeMessage("event", "android", text)
-        uiState = uiState.copy(nativeInput = "", status = "Event enviado a JavaScript (sin respuesta).")
-        record(packet, destination = "Web", status = "Notificado")
-        dispatch(packet)
-    }
-
-    fun sendAndroidResponse() {
-        if (!uiState.isWebReady) return
-        val pending = uiState.pendingFromWeb.firstOrNull() ?: run {
-            uiState = uiState.copy(status = "No hay Requests de la Web por responder.")
-            return
-        }
-        val customText = uiState.nativeInput.trim()
-        val text = if (customText.isNotEmpty()) customText else "Android recibió: ${pending.text}".take(MessageValidator.MAX_LENGTH)
-        if (!MessageValidator.isValid(text)) {
-            uiState = uiState.copy(status = "Respuesta inválida (máximo 2000 caracteres).")
-            return
-        }
-        val packet = BridgeMessage("response", "android", text, requestId = pending.id)
-        uiState = uiState.copy(
-            nativeInput = "",
-            pendingFromWeb = uiState.pendingFromWeb.drop(1),
-            status = "Response enviado para ${pending.id}."
-        )
-        updateRequestStatus(pending.id, "Respondido por Android")
-        record(packet, destination = "Web", status = "Respondido")
-        dispatch(packet)
+    fun sendAndroidEvent(action: BridgeAction) {
+        if (!uiState.isWebReady || action.destination != "web") return
+        val packet = BridgeMessage("event", "android", action.label, action = action.key)
+        uiState = uiState.copy(status = "Event enviado · ${action.label}")
+        sendToWeb(packet, status = "Enviado")
     }
 
     fun clearFromAndroid() {
         if (!uiState.isWebReady) return
-        reset("Historial y solicitudes limpiados desde Android.")
-        dispatch(BridgeMessage("clear", "android"))
+        clearHistory()
     }
 
     /** Llega en el hilo principal por LocalWebViewConfigurator. */
-    fun onMessageFromWeb(raw: String) {
+    fun onMessageFromWeb(raw: String, performAction: (BridgeAction) -> String) {
+        if (!uiState.isWebReady) return
         val packet = BridgeMessageCodec.decode(raw)
         if (packet == null || packet.source != "web") {
             reportError("JSON inválido u origen no permitido.")
@@ -104,15 +93,30 @@ class WebBridgeViewModel : ViewModel() {
         when (packet.type) {
             "request" -> {
                 if (!MessageValidator.isValid(packet.text) || packet.id.isBlank() ||
-                    packet.id.length > 100 || uiState.pendingFromWeb.any { it.id == packet.id }) {
+                    packet.id.length > 100 || packet.id in scheduledResponses) {
                     reportError("Request web inválido o identificador repetido.")
                     return
                 }
+                scheduledResponses[packet.id] = viewModelScope.launch {
+                    delay(RESPONSE_DELAY_MS)
+                    scheduledResponses.remove(packet.id)
+                    val response = BridgeMessage(
+                        "response", "android",
+                        "Android recibió: ${packet.text}".take(MessageValidator.MAX_LENGTH),
+                        requestId = packet.id
+                    )
+                    updateRequestStatus("web", packet.id, "Respondido por Android")
+                    uiState = uiState.copy(
+                        pendingNativeResponses = scheduledResponses.size,
+                        status = "Response automático enviado para ${packet.id}"
+                    )
+                    sendToWeb(response, status = "Enviado automáticamente")
+                }
                 uiState = uiState.copy(
-                    pendingFromWeb = uiState.pendingFromWeb + packet,
-                    status = "Request de Web (${packet.id}). Responde en Android → Web."
+                    pendingNativeResponses = scheduledResponses.size,
+                    status = "Request ${packet.id} recibido. Android responde en 2,5 s…"
                 )
-                record(packet, destination = "Android", status = "Esperando Response")
+                record(packet, destination = "Android", status = "Esperando Response", json = raw)
             }
             "response" -> {
                 if (!MessageValidator.isValid(packet.text) ||
@@ -122,26 +126,27 @@ class WebBridgeViewModel : ViewModel() {
                 }
                 uiState = uiState.copy(
                     awaitingWebResponses = uiState.awaitingWebResponses - packet.requestId,
-                    status = "Response recibido de Web para ${packet.requestId}."
+                    status = "Response · ${packet.requestId}: ${packet.text.take(140)}"
                 )
-                updateRequestStatus(packet.requestId, "Respondido por Web")
-                record(packet, destination = "Android", status = "Recibido")
+                updateRequestStatus("android", packet.requestId, "Respondido por Web")
+                record(packet, destination = "Android", status = "Recibido", json = raw)
             }
             "event" -> {
-                if (!MessageValidator.isValid(packet.text)) {
-                    reportError("Event web inválido.")
+                val action = BridgeAction.entries.firstOrNull {
+                    it.destination == "android" && it.key == packet.action
+                }
+                if (action == null || !MessageValidator.isValid(packet.text)) {
+                    reportError("Acción web inválida o no permitida.")
                     return
                 }
-                uiState = uiState.copy(status = "Event recibido desde JavaScript.")
-                record(packet, destination = "Android", status = "Notificado")
+                val result = performAction(action)
+                uiState = uiState.copy(status = result)
+                record(packet, destination = "Android", status = result, json = raw)
             }
-            "clear" -> {
-                reset("Historial y solicitudes limpiados desde Web.")
-                dispatch(BridgeMessage("clear", "android"))
-            }
+            "clear" -> clearHistory()
             "error" -> {
                 uiState = uiState.copy(status = "Error reportado por Web: ${packet.text.take(200)}")
-                record(packet, destination = "Android", status = "Error")
+                record(packet, destination = "Android", status = "Error", json = raw)
             }
             else -> reportError("Tipo de mensaje no reconocido: ${packet.type.take(30)}")
         }
@@ -156,37 +161,61 @@ class WebBridgeViewModel : ViewModel() {
         return text
     }
 
-    private fun record(packet: BridgeMessage, destination: String, status: String) {
-        uiState = uiState.copy(messages = (
-            listOf(ChatEntry(packet.source, destination, packet.type.uppercase(),
-                packet.text, packet.id, packet.requestId, status)) + uiState.messages
-        ).take(200))
+    private fun record(packet: BridgeMessage, destination: String, status: String, json: String) {
+        val entry = ChatEntry(
+            source = packet.source,
+            destination = destination,
+            type = packet.type.uppercase(),
+            text = packet.text,
+            id = packet.id,
+            requestId = packet.requestId,
+            status = status,
+            json = json
+        )
+        uiState = uiState.copy(messages = (listOf(entry) + uiState.messages).take(200))
     }
 
-    private fun updateRequestStatus(id: String, status: String) {
+    private fun updateRequestStatus(source: String, id: String, status: String) {
         uiState = uiState.copy(messages = uiState.messages.map { entry ->
-            if (entry.type == "REQUEST" && entry.id == id) entry.copy(status = status) else entry
+            if (entry.type == "REQUEST" && entry.source == source && entry.id == id) {
+                entry.copy(status = status)
+            } else entry
         })
     }
 
-    private fun reset(status: String) {
+    private fun clearHistory() {
+        cancelResponses()
         uiState = uiState.copy(
-            messages = emptyList(), pendingFromWeb = emptyList(),
-            awaitingWebResponses = emptyList(), status = status
+            messages = emptyList(),
+            awaitingWebResponses = emptySet(),
+            status = "Registro y solicitudes pendientes limpiados"
         )
+        sendToWeb(BridgeMessage("clear", "android"))
+    }
+
+    private fun cancelResponses() {
+        scheduledResponses.values.forEach(Job::cancel)
+        scheduledResponses.clear()
+        uiState = uiState.copy(pendingNativeResponses = 0)
     }
 
     private fun reportError(message: String) {
         uiState = uiState.copy(status = "Error: $message")
-        dispatch(BridgeMessage("error", "android", message))
+        sendToWeb(BridgeMessage("error", "android", message))
     }
 
-    private fun dispatch(packet: BridgeMessage) {
-        commandChannel.trySend(packet)
+    private fun sendToWeb(packet: BridgeMessage, status: String? = null) {
+        val json = BridgeMessageCodec.encode(packet)
+        if (status != null) record(packet, destination = "Web", status = status, json = json)
+        commandChannel.trySend(json)
     }
 
     override fun onCleared() {
         commandChannel.close()
         super.onCleared()
+    }
+
+    private companion object {
+        const val RESPONSE_DELAY_MS = 2_500L
     }
 }

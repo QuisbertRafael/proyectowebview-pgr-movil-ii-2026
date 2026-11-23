@@ -1,147 +1,155 @@
 (() => {
   'use strict';
+
   const input = document.getElementById('webInput');
   const status = document.getElementById('status');
-  const history = document.getElementById('history');
   const pendingView = document.getElementById('pendingRequest');
-  const responseButton = document.getElementById('responseButton');
-  const incomingAndroidRequests = [];
+  const actionSelect = document.getElementById('eventAction');
+  const panel = document.getElementById('eventPanel');
+  const banner = document.getElementById('eventBanner');
+  const pendingResponses = new Map();
   const awaitingAndroidResponse = new Set();
+  const RESPONSE_DELAY_MS = 2500;
+  const MAX_TEXT_LENGTH = 2000;
+  const androidActions = new Map([
+    ['open_camera', 'Abrir cámara'],
+    ['open_menu', 'Abrir menú Android'],
+    ['show_toast', 'Mostrar aviso Android']
+  ]);
   let requestNumber = 0;
 
-  function setStatus(message) { status.textContent = message; }
-  function addEntry(source, text) {
-    const item = document.createElement('li');
-    const label = document.createElement('span');
-    label.className = 'tag';
-    label.textContent = source;
-    item.appendChild(label);
-    item.appendChild(document.createTextNode(text));
-    history.prepend(item);
+  function setStatus(message) {
+    status.textContent = message;
   }
+
   function refreshPending() {
-    const pending = incomingAndroidRequests[0];
-    pendingView.textContent = pending
-      ? `${pending.id}: ${pending.text} (${incomingAndroidRequests.length} pendiente/s)`
-      : 'No hay solicitudes pendientes.';
-    responseButton.disabled = !pending;
+    pendingView.textContent = `Web por responder: ${pendingResponses.size} · Android por responder: ${awaitingAndroidResponse.size}`;
   }
-  function sendToAndroid(packet) {
-    if (!window.AndroidBridge || typeof window.AndroidBridge.sendMessage !== 'function') {
-      setStatus('Comunicación disponible solo dentro de la app Android.');
+
+  function sendToAndroid({ type, text = '', id = '', requestId = '', action }) {
+    if (typeof window.AndroidBridge?.sendMessage !== 'function') {
+      setStatus('Abre la app Android para usar el puente.');
       return false;
     }
-    window.AndroidBridge.sendMessage(JSON.stringify({ ...packet, source: 'web' }));
+    const packet = { type, source: 'web', text, id, requestId };
+    if (action) packet.action = action;
+    window.AndroidBridge.sendMessage(JSON.stringify(packet));
     return true;
   }
-  function getValidText() {
-    const text = input.value.trim();
-    if (text.length < 1 || text.length > 2000) {
-      setStatus('Escribe entre 1 y 2000 caracteres.');
-      return null;
-    }
-    return text;
+
+  function validText(text) {
+    return typeof text === 'string' && text.trim().length > 0 && text.length <= MAX_TEXT_LENGTH;
   }
 
-  document.getElementById('requestButton').addEventListener('click', () => {
-    const text = getValidText();
-    if (text === null) return;
-    const id = `web-${++requestNumber}`;
-    if (sendToAndroid({ type: 'request', id, text })) {
-      awaitingAndroidResponse.add(id);
-      addEntry('REQUEST · Web → Android', `${id}: ${text}`);
-      input.value = '';
-      setStatus(`Request ${id} enviado. Ve a Android → Web y pulsa Response.`);
-    }
-  });
-
-  responseButton.addEventListener('click', () => {
-    const pending = incomingAndroidRequests[0];
-    if (!pending) return;
-    const custom = input.value.trim();
-    const text = custom || `Web recibió: ${pending.text}`.slice(0, 2000);
-    if (text.length > 2000) {
-      setStatus('La respuesta supera los 2000 caracteres.');
+  function sendRequest() {
+    const text = input.value.trim();
+    if (!validText(text)) {
+      setStatus('Escribe entre 1 y 2000 caracteres.');
       return;
     }
-    if (sendToAndroid({ type: 'response', requestId: pending.id, text })) {
-      incomingAndroidRequests.shift();
+    const id = `web-${++requestNumber}`;
+    if (!sendToAndroid({ type: 'request', id, text })) return;
+    awaitingAndroidResponse.add(id);
+    input.value = '';
+    input.blur();
+    refreshPending();
+    setStatus(`Request ${id} enviado. Android responde en 2,5 s…`);
+  }
+
+  function scheduleResponse(packet) {
+    if (typeof packet.id !== 'string' || !packet.id.trim() || packet.id.length > 100 ||
+        !validText(packet.text) || pendingResponses.has(packet.id)) {
+      setStatus('Request de Android inválido o repetido.');
+      return;
+    }
+    const timer = setTimeout(() => {
+      pendingResponses.delete(packet.id);
       refreshPending();
-      addEntry('RESPONSE · Web → Android', `Para ${pending.id}: ${text}`);
-      input.value = '';
-      setStatus(`Response enviado para ${pending.id}.`);
-    }
-  });
+      const text = `Web recibió: ${packet.text}`.slice(0, MAX_TEXT_LENGTH);
+      if (sendToAndroid({ type: 'response', requestId: packet.id, text })) {
+        setStatus(`Response automático enviado para ${packet.id}.`);
+      }
+    }, RESPONSE_DELAY_MS);
+    pendingResponses.set(packet.id, timer);
+    refreshPending();
+    setStatus(`Request ${packet.id} recibido. Web responde en 2,5 s…`);
+  }
 
+  function receiveResponse(packet) {
+    if (!awaitingAndroidResponse.has(packet.requestId) || !validText(packet.text)) {
+      setStatus('Response sin Request de Web pendiente.');
+      return;
+    }
+    awaitingAndroidResponse.delete(packet.requestId);
+    refreshPending();
+    setStatus(`Response · ${packet.requestId}: ${packet.text.slice(0, 140)}`);
+  }
+
+  function receiveEvent(action) {
+    switch (action) {
+      case 'toggle_theme': {
+        const dark = document.documentElement.classList.toggle('dark');
+        setStatus(`Event aplicado · Tema ${dark ? 'oscuro' : 'claro'}`);
+        break;
+      }
+      case 'open_panel':
+        panel.hidden = false;
+        panel.scrollIntoView({ block: 'nearest' });
+        setStatus('Event aplicado · Panel web abierto');
+        break;
+      case 'show_banner':
+        banner.hidden = false;
+        banner.scrollIntoView({ block: 'nearest' });
+        setStatus('Event aplicado · Aviso web mostrado');
+        break;
+      default:
+        setStatus('Acción Android no disponible en la web.');
+    }
+  }
+
+  function clear() {
+    pendingResponses.forEach(timer => clearTimeout(timer));
+    pendingResponses.clear();
+    awaitingAndroidResponse.clear();
+    panel.hidden = true;
+    banner.hidden = true;
+    refreshPending();
+    setStatus('Registro y solicitudes pendientes limpiados.');
+  }
+
+  document.getElementById('requestButton').addEventListener('click', sendRequest);
   document.getElementById('eventButton').addEventListener('click', () => {
-    const text = getValidText();
-    if (text === null) return;
-    if (sendToAndroid({ type: 'event', text })) {
-      addEntry('EVENT · Web → Android', text);
-      input.value = '';
-      setStatus('Event enviado a Kotlin (no espera Response).');
+    const action = actionSelect.value;
+    const text = androidActions.get(action);
+    if (text && sendToAndroid({ type: 'event', text, action })) {
+      setStatus(`Event enviado · ${text}`);
     }
   });
-
-  document.getElementById('clearButton').addEventListener('click', () => {
-    if (sendToAndroid({ type: 'clear', text: '' })) {
-      setStatus('Solicitando limpieza de ambos historiales...');
-    }
+  document.getElementById('closePanel').addEventListener('click', () => {
+    panel.hidden = true;
   });
 
-  // Llamado únicamente por Kotlin mediante WebView.evaluateJavascript(...).
   window.WebBridgeApp = Object.freeze({
     onNativeMessage(rawJson) {
+      let packet;
       try {
-        const packet = JSON.parse(rawJson);
-        if (packet.source !== 'android') {
-          setStatus('Origen no permitido.');
-          return;
-        }
-        switch (packet.type) {
-          case 'request':
-            if (typeof packet.id !== 'string' || !packet.id ||
-                typeof packet.text !== 'string' || !packet.text.trim() ||
-                incomingAndroidRequests.some(item => item.id === packet.id)) {
-              setStatus('Request de Android inválido o repetido.');
-              return;
-            }
-            incomingAndroidRequests.push(packet);
-            refreshPending();
-            addEntry('REQUEST · Android → Web', `${packet.id}: ${packet.text}`);
-            setStatus(`Request recibido (${packet.id}). Pulsa Response para contestar.`);
-            break;
-          case 'response':
-            if (!awaitingAndroidResponse.has(packet.requestId) ||
-                typeof packet.text !== 'string' || !packet.text.trim()) {
-              setStatus('Response sin Request de Web pendiente.');
-              return;
-            }
-            awaitingAndroidResponse.delete(packet.requestId);
-            addEntry('RESPONSE · Android → Web', `Para ${packet.requestId}: ${packet.text}`);
-            setStatus(`Response recibido para ${packet.requestId}.`);
-            break;
-          case 'event':
-            addEntry('EVENT · Android → Web', String(packet.text ?? ''));
-            setStatus('Event recibido desde Kotlin (sin respuesta).');
-            break;
-          case 'clear':
-            history.replaceChildren();
-            incomingAndroidRequests.length = 0;
-            awaitingAndroidResponse.clear();
-            refreshPending();
-            setStatus('Historial y solicitudes limpiados en ambos lados.');
-            break;
-          case 'error':
-            setStatus('Error desde Android: ' + String(packet.text ?? ''));
-            break;
-          default:
-            setStatus('Tipo de mensaje desconocido.');
-        }
-      } catch (_) {
+        packet = JSON.parse(rawJson);
+      } catch {
         setStatus('Mensaje nativo no válido (JSON).');
+        return;
+      }
+      if (packet?.source !== 'android') {
+        setStatus('Origen no permitido.');
+        return;
+      }
+      switch (packet.type) {
+        case 'request': scheduleResponse(packet); break;
+        case 'response': receiveResponse(packet); break;
+        case 'event': receiveEvent(packet.action); break;
+        case 'clear': clear(); break;
+        case 'error': setStatus(`Error desde Android: ${packet.text ?? ''}`); break;
+        default: setStatus('Tipo de mensaje desconocido.');
       }
     }
   });
-  refreshPending();
 })();

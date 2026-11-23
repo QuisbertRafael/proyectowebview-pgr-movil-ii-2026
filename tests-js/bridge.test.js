@@ -1,81 +1,119 @@
-const fs = require('fs');
-const vm = require('vm');
-const assert = require('assert');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+
 const code = fs.readFileSync(__dirname + '/../app/src/main/assets/js/bridge.js', 'utf8');
-function fakeNode(id) {
+const ids = ['webInput', 'requestButton', 'eventButton', 'eventAction', 'status',
+  'pendingRequest', 'eventPanel', 'eventBanner', 'closePanel'];
+
+function fakeNode() {
   return {
-    id, value: '', textContent: '', disabled: false, children: [], listeners: {},
+    value: '', textContent: '', hidden: true, listeners: {},
     addEventListener(event, handler) { this.listeners[event] = handler; },
-    appendChild(node) { this.children.push(node); },
-    prepend(node) { this.children.unshift(node); },
-    replaceChildren() { this.children = []; }
+    blur() {},
+    scrollIntoView() {}
   };
 }
-const ids = ['webInput','requestButton','responseButton','eventButton',
-  'clearButton','pendingRequest','status','history'];
-const nodes = Object.fromEntries(ids.map(id => [id, fakeNode(id)]));
+
+const nodes = Object.fromEntries(ids.map(id => [id, fakeNode()]));
 const recorded = [];
+const timers = new Map();
+let time = 0;
+let nextTimer = 0;
+let dark = false;
 const sandbox = {
-  document: { getElementById: id => nodes[id], createElement: fakeNode,
-    createTextNode: text => ({ textContent: text }) },
+  document: {
+    getElementById: id => nodes[id],
+    documentElement: { classList: { toggle: () => (dark = !dark) } }
+  },
   window: { AndroidBridge: { sendMessage: data => recorded.push(JSON.parse(data)) } },
-  JSON, String, Object, Set,
+  setTimeout(handler, delay) {
+    const id = ++nextTimer;
+    timers.set(id, { handler, deadline: time + delay });
+    return id;
+  },
+  clearTimeout(id) { timers.delete(id); }
 };
 vm.runInNewContext(code, sandbox);
+
 function click(id) { nodes[id].listeners.click(); }
 function fromAndroid(data) {
   sandbox.window.WebBridgeApp.onNativeMessage(JSON.stringify({ ...data, source: 'android' }));
 }
 
-// Request Web -> Android; Android devuelve Response con el ID original.
-nodes.webInput.value = 'Pedir versión'; click('requestButton');
-assert.equal(recorded.length, 1);
-assert.equal(recorded[0].type, 'request');
-assert.equal(recorded[0].id, 'web-1');
-assert.equal(recorded[0].source, 'web');
-assert.equal(nodes.webInput.value, '');
-fromAndroid({ type: 'response', requestId: 'web-1', text: 'Android versión 1' });
-assert.ok(nodes.status.textContent.includes('web-1'));
-assert.equal(nodes.history.children.length, 2);
+function advance(milliseconds) {
+  time += milliseconds;
+  for (const [id, { deadline, handler }] of timers) {
+    if (deadline > time) continue;
+    timers.delete(id);
+    handler();
+  }
+}
 
-// El Event no genera un Request pendiente.
-nodes.webInput.value = 'Botón presionado'; click('eventButton');
-assert.equal(recorded[1].type, 'event');
-assert.equal(recorded[1].text, 'Botón presionado');
+nodes.webInput.value = 'Pedir versión';
+click('requestButton');
+assert.deepEqual(recorded.shift(), {
+  type: 'request', source: 'web', text: 'Pedir versión', id: 'web-1', requestId: ''
+});
+assert.match(nodes.pendingRequest.textContent, /Android por responder: 1/);
+fromAndroid({ type: 'response', requestId: 'web-1', text: 'Android recibió: Pedir versión' });
+assert.match(nodes.status.textContent, /web-1/);
+assert.match(nodes.pendingRequest.textContent, /Android por responder: 0/);
 
-// Request Android -> Web: se habilita el botón Response.
 fromAndroid({ type: 'request', id: 'android-7', text: 'Pedir título' });
-assert.equal(nodes.responseButton.disabled, false);
-assert.ok(nodes.pendingRequest.textContent.includes('Pedir título'));
-click('responseButton'); // respuesta predeterminada
-assert.equal(recorded[2].type, 'response');
-assert.equal(recorded[2].requestId, 'android-7');
-assert.ok(recorded[2].text.includes('Pedir título'));
-assert.equal(nodes.responseButton.disabled, true);
+fromAndroid({ type: 'request', id: 'android-8', text: 'Otra solicitud' });
+fromAndroid({ type: 'request', id: 'android-7', text: 'Duplicada' });
+assert.match(nodes.pendingRequest.textContent, /Web por responder: 2/);
+advance(2499);
+assert.equal(recorded.length, 0);
+advance(1);
+assert.deepEqual(recorded.splice(0), [
+  { type: 'response', source: 'web', text: 'Web recibió: Pedir título', id: '', requestId: 'android-7' },
+  { type: 'response', source: 'web', text: 'Web recibió: Otra solicitud', id: '', requestId: 'android-8' }
+]);
+assert.match(nodes.pendingRequest.textContent, /Web por responder: 0/);
 
-// Input inválido: no se envía nada.
-nodes.webInput.value = '   '; click('requestButton'); click('eventButton');
-assert.equal(recorded.length, 3);
+for (const action of ['open_camera', 'open_menu', 'show_toast']) {
+  nodes.eventAction.value = action;
+  click('eventButton');
+  const event = recorded.shift();
+  assert.equal(event.type, 'event');
+  assert.equal(event.action, action);
+  assert.equal(event.requestId, '');
+}
+nodes.eventAction.value = 'unsupported';
+click('eventButton');
+assert.equal(recorded.length, 0);
+fromAndroid({ type: 'event', action: 'toggle_theme' });
+assert.equal(dark, true);
+fromAndroid({ type: 'event', action: 'toggle_theme' });
+assert.equal(dark, false);
+fromAndroid({ type: 'event', action: 'open_panel' });
+assert.equal(nodes.eventPanel.hidden, false);
+click('closePanel');
+assert.equal(nodes.eventPanel.hidden, true);
+fromAndroid({ type: 'event', action: 'show_banner' });
+assert.equal(nodes.eventBanner.hidden, false);
+assert.equal(recorded.length, 0);
 
-// Response sin solicitud coincidente se rechaza.
+nodes.webInput.value = ' ';
+click('requestButton');
+assert.equal(recorded.length, 0);
 fromAndroid({ type: 'response', requestId: 'inexistente', text: 'No' });
-assert.ok(nodes.status.textContent.includes('sin Request'));
+assert.match(nodes.status.textContent, /sin Request/);
+fromAndroid({ type: 'request', id: 'android-9', text: 'x'.repeat(2000) });
+advance(2500);
+assert.equal(recorded.shift().text.length, 2000);
 
-// Limpiar ambos extremos también descarta las solicitudes pendientes.
-fromAndroid({ type: 'request', id: 'android-8', text: 'Pendiente' });
-assert.equal(nodes.responseButton.disabled, false);
-click('clearButton'); assert.equal(recorded[3].type, 'clear');
-fromAndroid({ type: 'clear', text: '' });
-assert.equal(nodes.history.children.length, 0);
-assert.equal(nodes.responseButton.disabled, true);
-fromAndroid({ type: 'request', id: 'android-9', text: 'Nueva' });
-assert.equal(nodes.responseButton.disabled, false);
+fromAndroid({ type: 'request', id: 'android-10', text: 'Se cancela' });
+fromAndroid({ type: 'clear' });
+advance(2500);
+assert.equal(recorded.length, 0);
+assert.equal(nodes.eventBanner.hidden, true);
+assert.match(nodes.pendingRequest.textContent, /Web por responder: 0/);
 
-// JSON y origen no válidos.
 sandbox.window.WebBridgeApp.onNativeMessage('no-json');
-assert.ok(nodes.status.textContent.includes('JSON'));
-sandbox.window.WebBridgeApp.onNativeMessage(JSON.stringify({
-  type: 'request', source: 'otro', id: 'falso', text: 'No'
-}));
-assert.ok(nodes.status.textContent.includes('Origen'));
-console.log('PASS: Request / Response / Event en ambos sentidos, IDs, validaciones y CLEAR');
+assert.match(nodes.status.textContent, /JSON/);
+sandbox.window.WebBridgeApp.onNativeMessage('null');
+assert.match(nodes.status.textContent, /Origen/);
+console.log('PASS: plazo de 2,5 s, IDs, solicitudes simultáneas, acciones Event, validación y limpieza.');

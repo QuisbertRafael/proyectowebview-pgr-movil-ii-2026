@@ -9,31 +9,35 @@
   <script src="js/bridge.js" defer></script>
 </head>
 <body>
-  <main class="panel">
+  <main>
     <h1>Web → Android</h1>
-    <p>Esta página HTML/JavaScript vive dentro del WebView. No necesita servidor ni internet.</p>
+    <p class="byline">HTML / JavaScript en WebView</p>
 
-    <label for="webInput">Mensaje desde JavaScript</label>
-    <textarea id="webInput" maxlength="2000" placeholder="Escribe algo para Android..."></textarea>
-    <div class="actions" aria-label="Operaciones del lado web">
+    <label for="webInput">Mensaje para el Request</label>
+    <div class="controls">
+      <input id="webInput" type="text" maxlength="2000" autocomplete="off">
       <button id="requestButton" type="button">Request</button>
-      <button id="responseButton" type="button" disabled>Response</button>
-      <button id="eventButton" type="button">Event</button>
     </div>
-    <p class="helper">Request espera respuesta. Response atiende un Request de Android. Event no necesita respuesta.</p>
 
-    <section class="pending">
-      <h2>Solicitud pendiente desde Android</h2>
-      <p id="pendingRequest">No hay solicitudes pendientes.</p>
-      <p class="helper">Cuando llegue una, pulsa Response. Puedes dejar el texto vacío para responder con un ejemplo.</p>
+    <label for="eventAction">Acción del Event</label>
+    <div class="controls">
+      <select id="eventAction">
+        <option value="open_camera">Abrir cámara</option>
+        <option value="open_menu">Abrir menú Android</option>
+        <option value="show_toast">Mostrar aviso Android</option>
+      </select>
+      <button id="eventButton" type="button" class="secondary">Enviar Event</button>
+    </div>
+
+    <p id="status" role="status" aria-live="polite">Página local lista.</p>
+    <p id="pendingRequest" class="byline">Web por responder: 0 · Android por responder: 0</p>
+
+    <p id="eventBanner" class="feedback" role="status" hidden>Android envió un aviso a la web.</p>
+    <section id="eventPanel" class="feedback" aria-labelledby="eventPanelTitle" hidden>
+      <h2 id="eventPanelTitle">Panel web</h2>
+      <p>Android abrió este panel mediante un Event.</p>
+      <button id="closePanel" type="button" class="secondary">Cerrar panel</button>
     </section>
-
-    <div id="status" role="status" aria-live="polite">Página JavaScript lista.</div>
-    <div class="actions">
-      <button id="clearButton" class="secondary" type="button">Limpiar ambos historiales</button>
-    </div>
-    <h2>Historial de JavaScript</h2>
-    <ul id="history" aria-label="Operaciones intercambiadas"></ul>
   </main>
 </body>
 </html>

@@ -15,7 +15,8 @@ object BridgeMessageCodec {
                 source = obj.getString("source"),
                 text = obj.optString("text", ""),
                 id = obj.optString("id", ""),
-                requestId = obj.optString("requestId", "")
+                requestId = obj.optString("requestId", ""),
+                action = obj.optString("action", "")
             )
         }
     } catch (_: Exception) {
@@ -28,5 +29,6 @@ object BridgeMessageCodec {
         .put("text", message.text)
         .put("id", message.id)
         .put("requestId", message.requestId)
+        .apply { if (message.action.isNotEmpty()) put("action", message.action) }
         .toString()
 }

@@ -1,47 +1,61 @@
 package ucb.edu.webbride_ucb.presentation.components
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import ucb.edu.webbride_ucb.domain.model.BridgeMessage
+import ucb.edu.webbride_ucb.domain.model.BridgeAction
 import ucb.edu.webbride_ucb.domain.validation.MessageValidator
 
-/** Los tres botones de operaciones del lado nativo. */
 @Composable
 fun MessageComposer(
     text: String,
     enabled: Boolean,
-    pending: BridgeMessage?,
     onTextChanged: (String) -> Unit,
     onRequest: () -> Unit,
-    onResponse: () -> Unit,
-    onEvent: () -> Unit
+    onEvent: (BridgeAction) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = onTextChanged,
-            label = { Text("Mensaje desde Android") },
-            supportingText = { Text("Para Response puedes dejarlo vacío y usar la respuesta de ejemplo.") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
-            maxLines = 4
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onRequest, enabled = enabled && MessageValidator.isValid(text),
-                modifier = Modifier.weight(1f)) { Text("Request") }
-            Button(onClick = onResponse, enabled = enabled && pending != null,
-                modifier = Modifier.weight(1f)) { Text("Response") }
-            OutlinedButton(onClick = onEvent, enabled = enabled && MessageValidator.isValid(text),
-                modifier = Modifier.weight(1f)) { Text("Event") }
+    var eventMenu by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = onTextChanged,
+        label = { Text("Mensaje para el Request") },
+        modifier = Modifier.fillMaxWidth(),
+        maxLines = 2
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onRequest, enabled = enabled && MessageValidator.isValid(text)) {
+            Text("Request")
+        }
+        Box {
+            OutlinedButton(onClick = { eventMenu = true }, enabled = enabled) {
+                Text("Eventos")
+            }
+            DropdownMenu(expanded = eventMenu, onDismissRequest = { eventMenu = false }) {
+                BridgeAction.entries.filter { it.destination == "web" }.forEach { action ->
+                    DropdownMenuItem(
+                        text = { Text(action.label) },
+                        onClick = {
+                            eventMenu = false
+                            onEvent(action)
+                        }
+                    )
+                }
+            }
         }
     }
 }
