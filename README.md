@@ -1,12 +1,36 @@
 # WebBridge UCB
 
-Demostración de integración entre **Kotlin y JavaScript por paso de mensajes JSON**. WebView ejecuta la página web empaquetada en la app. La demostración funciona localmente en un solo dispositivo Android.
+Demostración de integración entre **Kotlin y JavaScript por paso de mensajes JSON**. WebView ejecuta la página incluida en la app. Los mismos archivos se pueden abrir desde el navegador de la laptop.
 
 ## Ejecución
 
 1. Abre en Android Studio la carpeta que contiene `settings.gradle.kts`.
 2. Sincroniza Gradle. El proyecto usa SDK 37 para compilar, Gradle 9.5.0 y JDK 25 para el daemon. La primera sincronización puede requerir internet.
 3. Ejecuta **app** en un teléfono o emulador con Android API 24 o posterior y espera **WebView listo**. El paquete es `ucb.edu.webbride_ucb`.
+
+## Abrir la página en la laptop
+
+Con Node.js instalado, abre una terminal en la carpeta que contiene `settings.gradle.kts` y ejecuta:
+
+```powershell
+node serve-web.mjs
+```
+
+Deja la terminal abierta y entra a [http://localhost:8080/](http://localhost:8080/). El servidor usa el mismo HTML, CSS y JavaScript de `app/src/main/assets`. La página abre en tema claro y los controles que requieren Android aparecen desactivados.
+
+## Abrir la página desde el registro de Android
+
+1. Deja el servidor ejecutándose en la laptop. Inicia el emulador o conecta el teléfono por USB con la depuración USB activada.
+2. En otra terminal de la laptop, conecta el puerto del navegador Android con el servidor mediante [ADB](https://developer.android.com/develop/ui/views/layout/webapps/access-local-server#adb-reverse).
+
+   ```powershell
+   adb reverse tcp:8080 tcp:8080
+   ```
+
+   Si `adb` no está en el PATH, ejecútalo desde `platform-tools`, dentro de la carpeta **Android SDK Location** que muestra el SDK Manager de Android Studio. En PowerShell puedes usar `& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse tcp:8080 tcp:8080` si usas la ubicación predeterminada. Si hay varios dispositivos conectados, usa `adb devices` y luego `adb -s ID reverse tcp:8080 tcp:8080` con el ID correspondiente.
+3. En la app, abre **Registro** y pulsa **Abrir web** junto a **Ver JSON**. Si el registro está vacío, **Abrir web** aparece debajo del mensaje de ayuda. El botón abre la URL que se muestra en la mitad web, usando el navegador de Android.
+
+Para mostrar la diferencia de tema, deja abierta la URL en la laptop y, en la mitad Android de la app, elige **Eventos → Cambiar tema web**. La mitad **Web → Android** cambia de tema y el navegador de la laptop sigue en claro. El navegador de Android también abre en claro. El cambio de tema se aplica a la página del WebView que recibe el Event.
 
 ## Una pantalla con dos mitades
 

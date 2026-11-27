@@ -17,6 +17,7 @@ import ucb.edu.webbride_ucb.data.bridge.AndroidJavascriptBridge
  */
 object LocalWebViewConfigurator {
     const val PAGE_URL = "https://appassets.androidplatform.net/assets/index.html"
+    const val PREVIEW_URL = "http://localhost:8080/"
     private const val LOCAL_HOST = "appassets.androidplatform.net"
 
     fun configure(
@@ -42,7 +43,7 @@ object LocalWebViewConfigurator {
             .build()
 
         webView.addJavascriptInterface(
-            AndroidJavascriptBridge { raw ->
+            AndroidJavascriptBridge(PREVIEW_URL) { raw ->
                 webView.post { onMessage(raw) }
             },
             "AndroidBridge"

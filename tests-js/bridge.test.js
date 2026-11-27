@@ -4,7 +4,8 @@ const vm = require('node:vm');
 
 const code = fs.readFileSync(__dirname + '/../app/src/main/assets/js/bridge.js', 'utf8');
 const ids = ['webInput', 'requestButton', 'eventButton', 'eventAction', 'status',
-  'pendingRequest', 'eventPanel', 'eventBanner', 'closePanel'];
+  'pendingRequest', 'eventPanel', 'eventBanner', 'closePanel', 'pageContext', 'pageUrl'];
+const previewUrl = 'http://localhost:8080/';
 
 function fakeNode() {
   return {
@@ -26,7 +27,12 @@ const sandbox = {
     getElementById: id => nodes[id],
     documentElement: { classList: { toggle: () => (dark = !dark) } }
   },
-  window: { AndroidBridge: { sendMessage: data => recorded.push(JSON.parse(data)) } },
+  window: {
+    AndroidBridge: {
+      getPreviewUrl: () => previewUrl,
+      sendMessage: data => recorded.push(JSON.parse(data))
+    }
+  },
   setTimeout(handler, delay) {
     const id = ++nextTimer;
     timers.set(id, { handler, deadline: time + delay });
@@ -35,6 +41,8 @@ const sandbox = {
   clearTimeout(id) { timers.delete(id); }
 };
 vm.runInNewContext(code, sandbox);
+assert.equal(nodes.pageUrl.textContent, previewUrl);
+assert.match(nodes.pageContext.textContent, /WebView/);
 
 function click(id) { nodes[id].listeners.click(); }
 function fromAndroid(data) {
@@ -86,6 +94,20 @@ click('eventButton');
 assert.equal(recorded.length, 0);
 fromAndroid({ type: 'event', action: 'toggle_theme' });
 assert.equal(dark, true);
+
+const browserNodes = Object.fromEntries(ids.map(id => [id, fakeNode()]));
+const browserWindow = { location: { href: previewUrl } };
+vm.runInNewContext(code, {
+  window: browserWindow,
+  document: { getElementById: id => browserNodes[id] }
+});
+assert.equal(browserNodes.pageUrl.textContent, previewUrl);
+assert.match(browserNodes.status.textContent, /Vista en navegador/);
+assert.equal(browserNodes.requestButton.disabled, true);
+assert.equal(browserNodes.eventButton.disabled, true);
+assert.equal(browserWindow.WebBridgeApp, undefined);
+assert.equal(dark, true);
+
 fromAndroid({ type: 'event', action: 'toggle_theme' });
 assert.equal(dark, false);
 fromAndroid({ type: 'event', action: 'open_panel' });
@@ -116,4 +138,4 @@ sandbox.window.WebBridgeApp.onNativeMessage('no-json');
 assert.match(nodes.status.textContent, /JSON/);
 sandbox.window.WebBridgeApp.onNativeMessage('null');
 assert.match(nodes.status.textContent, /Origen/);
-console.log('PASS: plazo de 2,5 s, IDs, solicitudes simultáneas, acciones Event, validación y limpieza.');
+console.log('PASS: Requests, Responses, Events, validación, limpieza y vista web independiente.');

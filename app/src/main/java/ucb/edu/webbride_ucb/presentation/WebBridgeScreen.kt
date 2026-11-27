@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.provider.MediaStore
 import android.webkit.WebView
 import android.widget.Toast
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.json.JSONObject
+import ucb.edu.webbride_ucb.data.webview.LocalWebViewConfigurator
 import ucb.edu.webbride_ucb.domain.model.BridgeAction
 import ucb.edu.webbride_ucb.presentation.components.BridgeWebView
 import ucb.edu.webbride_ucb.presentation.components.HistoryDialog
@@ -175,6 +177,7 @@ fun WebBridgeScreen(vm: WebBridgeViewModel = viewModel()) {
             messages = state.messages,
             canClear = state.isWebReady && state.messages.isNotEmpty(),
             onClear = vm::clearFromAndroid,
+            onOpenWeb = { openWebPreview(context) },
             onDismiss = { showHistory = false }
         )
     }
@@ -196,6 +199,16 @@ private fun SplitPanes(
             androidPane(Modifier.weight(1f).fillMaxWidth())
             webPane(Modifier.weight(1f).fillMaxWidth())
         }
+    }
+}
+
+private fun openWebPreview(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(LocalWebViewConfigurator.PREVIEW_URL))
+        .addCategory(Intent.CATEGORY_BROWSABLE)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No hay un navegador disponible", Toast.LENGTH_SHORT).show()
     }
 }
 

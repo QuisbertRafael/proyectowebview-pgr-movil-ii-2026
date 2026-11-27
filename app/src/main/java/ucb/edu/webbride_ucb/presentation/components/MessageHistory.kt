@@ -34,6 +34,7 @@ fun HistoryDialog(
     messages: List<ChatEntry>,
     canClear: Boolean,
     onClear: () -> Unit,
+    onOpenWeb: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var selected by remember { mutableStateOf<ChatEntry?>(null) }
@@ -71,7 +72,12 @@ fun HistoryDialog(
                         )
                     }
                 } else {
-                    MessageHistory(messages, Modifier.weight(1f), onSelect = { selected = it })
+                    MessageHistory(
+                        messages,
+                        Modifier.weight(1f),
+                        onSelect = { selected = it },
+                        onOpenWeb = onOpenWeb
+                    )
                     TextButton(onClick = onClear, enabled = canClear) { Text("Limpiar registro") }
                 }
             }
@@ -83,10 +89,14 @@ fun HistoryDialog(
 private fun MessageHistory(
     messages: List<ChatEntry>,
     modifier: Modifier,
-    onSelect: (ChatEntry) -> Unit
+    onSelect: (ChatEntry) -> Unit,
+    onOpenWeb: () -> Unit
 ) {
     if (messages.isEmpty()) {
-        Text("Envía un Request o un Event para ver el registro.", modifier = modifier)
+        Column(modifier) {
+            Text("Envía un Request o un Event para ver el registro.")
+            TextButton(onClick = onOpenWeb) { Text("Abrir web") }
+        }
         return
     }
 
@@ -97,14 +107,10 @@ private fun MessageHistory(
                     Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${entry.type} · ${entry.source} → ${entry.destination}",
-                            Modifier.weight(1f),
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        TextButton(onClick = { onSelect(entry) }) { Text("Ver JSON") }
-                    }
+                    Text(
+                        "${entry.type} · ${entry.source} → ${entry.destination}",
+                        style = MaterialTheme.typography.titleSmall
+                    )
                     if (entry.id.isNotEmpty()) Text("ID: ${entry.id}", style = MaterialTheme.typography.labelSmall)
                     if (entry.requestId.isNotEmpty()) {
                         Text("Responde a: ${entry.requestId}", style = MaterialTheme.typography.labelSmall)
@@ -115,6 +121,10 @@ private fun MessageHistory(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { onSelect(entry) }) { Text("Ver JSON") }
+                        TextButton(onClick = onOpenWeb) { Text("Abrir web") }
+                    }
                 }
             }
         }

@@ -61,6 +61,7 @@ button {
   font-weight: 650;
 }
 button.secondary { background: var(--field); color: var(--text); border-color: var(--border); }
+button:disabled, input:disabled, select:disabled { opacity: 0.6; }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 #status { color: var(--primary); font-size: 14px; }
 .feedback { margin-top: 10px; padding: 10px; border-radius: 8px; background: var(--feedback); }

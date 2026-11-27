@@ -5,8 +5,26 @@
   const status = document.getElementById('status');
   const pendingView = document.getElementById('pendingRequest');
   const actionSelect = document.getElementById('eventAction');
+  const requestButton = document.getElementById('requestButton');
+  const eventButton = document.getElementById('eventButton');
   const panel = document.getElementById('eventPanel');
   const banner = document.getElementById('eventBanner');
+  const bridge = window.AndroidBridge;
+  const inApp = typeof bridge?.sendMessage === 'function';
+  document.getElementById('pageContext').textContent = inApp
+    ? 'HTML / JavaScript en WebView'
+    : 'HTML / JavaScript en navegador';
+  document.getElementById('pageUrl').textContent = inApp
+    ? bridge.getPreviewUrl()
+    : window.location.href;
+
+  if (!inApp) {
+    [input, actionSelect, requestButton, eventButton].forEach(control => { control.disabled = true; });
+    pendingView.hidden = true;
+    status.textContent = 'Vista en navegador. Abre la app Android para usar Request y Event.';
+    return;
+  }
+
   const pendingResponses = new Map();
   const awaitingAndroidResponse = new Set();
   const RESPONSE_DELAY_MS = 2500;
@@ -27,14 +45,9 @@
   }
 
   function sendToAndroid({ type, text = '', id = '', requestId = '', action }) {
-    if (typeof window.AndroidBridge?.sendMessage !== 'function') {
-      setStatus('Abre la app Android para usar el puente.');
-      return false;
-    }
     const packet = { type, source: 'web', text, id, requestId };
     if (action) packet.action = action;
-    window.AndroidBridge.sendMessage(JSON.stringify(packet));
-    return true;
+    bridge.sendMessage(JSON.stringify(packet));
   }
 
   function validText(text) {
@@ -48,7 +61,7 @@
       return;
     }
     const id = `web-${++requestNumber}`;
-    if (!sendToAndroid({ type: 'request', id, text })) return;
+    sendToAndroid({ type: 'request', id, text });
     awaitingAndroidResponse.add(id);
     input.value = '';
     input.blur();
@@ -66,9 +79,8 @@
       pendingResponses.delete(packet.id);
       refreshPending();
       const text = `Web recibió: ${packet.text}`.slice(0, MAX_TEXT_LENGTH);
-      if (sendToAndroid({ type: 'response', requestId: packet.id, text })) {
-        setStatus(`Response automático enviado para ${packet.id}.`);
-      }
+      sendToAndroid({ type: 'response', requestId: packet.id, text });
+      setStatus(`Response automático enviado para ${packet.id}.`);
     }, RESPONSE_DELAY_MS);
     pendingResponses.set(packet.id, timer);
     refreshPending();
@@ -117,13 +129,13 @@
     setStatus('Registro y solicitudes pendientes limpiados.');
   }
 
-  document.getElementById('requestButton').addEventListener('click', sendRequest);
-  document.getElementById('eventButton').addEventListener('click', () => {
+  requestButton.addEventListener('click', sendRequest);
+  eventButton.addEventListener('click', () => {
     const action = actionSelect.value;
     const text = androidActions.get(action);
-    if (text && sendToAndroid({ type: 'event', text, action })) {
-      setStatus(`Event enviado · ${text}`);
-    }
+    if (!text) return;
+    sendToAndroid({ type: 'event', text, action });
+    setStatus(`Event enviado · ${text}`);
   });
   document.getElementById('closePanel').addEventListener('click', () => {
     panel.hidden = true;
